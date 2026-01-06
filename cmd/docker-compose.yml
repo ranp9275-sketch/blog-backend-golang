@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # MySQL 数据库
   mysql:
-    image: mysql:8.0
+    image: docker.1ms.run/mysql:8.0
     container_name: blog-mysql
     restart: always
     environment:
@@ -26,7 +26,7 @@ services:
 
   # Redis 缓存
   redis:
-    image: redis:7-alpine
+    image: docker.1ms.run/redis:7-alpine
     container_name: blog-redis
     restart: always
     volumes:
@@ -67,7 +67,7 @@ services:
     networks:
       - blog-network
 
-  # Vue 前端（直接暴露 80 端口，内置 nginx 处理 API 代理）
+  # Vue 前端
   frontend:
     build:
       context: ../../blog-frontend-vue
@@ -75,8 +75,25 @@ services:
     container_name: blog-frontend
     restart: always
     ports:
-      - "80:80"
+      - "3000:80"
     depends_on:
+      - backend
+    networks:
+      - blog-network
+
+  # Nginx 反向代理
+  nginx:
+    image: docker.1ms.run/nginx:alpine
+    container_name: blog-nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - frontend
       - backend
     networks:
       - blog-network

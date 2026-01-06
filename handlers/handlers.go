@@ -587,13 +587,13 @@ func (h *Handlers) UpdateUserArticle(c *gin.Context) {
 	}
 
 	var req struct {
-		Title      string   `json:"title"`
-		Content    string   `json:"content"`
-		Excerpt    string   `json:"excerpt"`
-		CoverImage string   `json:"cover_image"`
-		CategoryID string   `json:"category_id"`
-		TagIDs     []string `json:"tag_ids"`
-		Submit     bool     `json:"submit"` // true=提交审核
+		Title      string      `json:"title"`
+		Content    string      `json:"content"`
+		Excerpt    string      `json:"excerpt"`
+		CoverImage string      `json:"cover_image"`
+		CategoryID string      `json:"category_id"`
+		TagIDs     []string    `json:"tag_ids"`
+		Submit     interface{} `json:"submit"` // 兼容 bool 或其他类型
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -620,8 +620,12 @@ func (h *Handlers) UpdateUserArticle(c *gin.Context) {
 	if req.CategoryID != "" {
 		updates["category_id"] = req.CategoryID
 	}
-	if req.Submit {
-		updates["status"] = "pending"
+
+	// 处理 submit 字段
+	if submit, ok := req.Submit.(bool); ok && submit {
+		updates["status"] = "published"
+		now := time.Now()
+		updates["published_at"] = now
 	}
 
 	if err := h.repo.UpdateArticleWithTags(articleID, updates, req.TagIDs); err != nil {
