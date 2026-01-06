@@ -344,6 +344,9 @@ func (h *Handlers) RecordView(c *gin.Context) {
 		return
 	}
 
+	// 增加文章浏览次数
+	h.repo.IncrementArticleViews(articleID)
+
 	c.JSON(http.StatusOK, gin.H{"message": "View recorded"})
 }
 
