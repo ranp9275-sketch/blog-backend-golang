@@ -67,7 +67,7 @@ services:
     networks:
       - blog-network
 
-  # Vue 前端
+  # Vue 前端（直接暴露 80 端口，内置 nginx 处理 API 代理）
   frontend:
     build:
       context: ../../blog-frontend-vue
@@ -75,25 +75,8 @@ services:
     container_name: blog-frontend
     restart: always
     ports:
-      - "3000:80"
-    depends_on:
-      - backend
-    networks:
-      - blog-network
-
-  # Nginx 反向代理
-  nginx:
-    image: nginx:alpine
-    container_name: blog-nginx
-    restart: always
-    ports:
       - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/certs:/etc/nginx/certs:ro
     depends_on:
-      - frontend
       - backend
     networks:
       - blog-network

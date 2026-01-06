@@ -583,12 +583,6 @@ func (h *Handlers) UpdateUserArticle(c *gin.Context) {
 		return
 	}
 
-	// 已发布的文章不能编辑
-	if article.Status == "published" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Published articles cannot be edited"})
-		return
-	}
-
 	var req struct {
 		Title      string   `json:"title"`
 		Content    string   `json:"content"`
