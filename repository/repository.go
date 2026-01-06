@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/ranp9275-sketch/blog-backend-golang/models"
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
 
@@ -21,6 +21,18 @@ func NewRepository(db *gorm.DB, redis *redis.Client) *Repository {
 		db:    db,
 		redis: redis,
 	}
+}
+
+// ==================== User ====================
+
+func (r *Repository) GetUserByEmail(email string) (*models.User, error) {
+	var user models.User
+	err := r.db.Where("email = ?", email).First(&user).Error
+	return &user, err
+}
+
+func (r *Repository) CreateUser(user *models.User) error {
+	return r.db.Create(user).Error
 }
 
 // ==================== Article ====================
@@ -104,9 +116,11 @@ func (r *Repository) GetArticlesByCategory(categoryID string, page, pageSize int
 }
 
 func (r *Repository) GetArticlesByTag(tagID string, page, pageSize int) ([]models.Article, int64, error) {
+	// 需要通过关联表查询
 	var articles []models.Article
 	var total int64
 
+	// Count
 	r.db.Model(&models.Article{}).
 		Joins("JOIN article_tags ON article_tags.article_id = articles.id").
 		Where("article_tags.tag_id = ? AND articles.status = ?", tagID, "published").
@@ -165,7 +179,7 @@ func (r *Repository) DeleteTag(id string) error {
 
 // ==================== Comment ====================
 
-func (r *Repository) GetComments(articleID string) ([]models.Comment, error) {
+func (r *Repository) GetCommentsByArticleID(articleID string) ([]models.Comment, error) {
 	var comments []models.Comment
 	err := r.db.Where("article_id = ? AND status = ?", articleID, "approved").
 		Order("created_at DESC").
@@ -181,32 +195,234 @@ func (r *Repository) DeleteComment(id string) error {
 	return r.db.Delete(&models.Comment{}, "id = ?", id).Error
 }
 
-// ==================== Views ====================
+// ==================== Stats ====================
 
 func (r *Repository) RecordView(view *models.ArticleView) error {
 	return r.db.Create(view).Error
 }
 
-func (r *Repository) GetArticleViews(articleID string) (int64, error) {
-	var count int64
-	err := r.db.Model(&models.ArticleView{}).Where("article_id = ?", articleID).Count(&count).Error
-	return count, err
+func (r *Repository) IncrementArticleViews(articleID string) error {
+	return r.db.Model(&models.Article{}).Where("id = ?", articleID).
+		UpdateColumn("views", gorm.Expr("views + ?", 1)).Error
 }
 
-// ==================== Stats ====================
+func (r *Repository) GetArticleStats(articleID string) (int64, int64, error) {
+	var views int64
+	var comments int64
 
-func (r *Repository) GetStats() (map[string]interface{}, error) {
-	var articleCount, categoryCount, tagCount, commentCount int64
+	// 获取浏览量
+	var article models.Article
+	if err := r.db.Select("views").Where("id = ?", articleID).First(&article).Error; err != nil {
+		return 0, 0, err
+	}
+	views = article.Views
 
-	r.db.Model(&models.Article{}).Where("status = ?", "published").Count(&articleCount)
-	r.db.Model(&models.Category{}).Count(&categoryCount)
-	r.db.Model(&models.Tag{}).Count(&tagCount)
-	r.db.Model(&models.Comment{}).Count(&commentCount)
+	// 获取评论数
+	r.db.Model(&models.Comment{}).Where("article_id = ? AND status = ?", articleID, "approved").Count(&comments)
 
-	return map[string]interface{}{
-		"articles":   articleCount,
-		"categories": categoryCount,
-		"tags":       tagCount,
-		"comments":   commentCount,
-	}, nil
+	return views, comments, nil
+}
+
+// ==================== Search ====================
+
+func (r *Repository) SearchArticles(query string, page, pageSize int) ([]models.Article, int64, error) {
+	var articles []models.Article
+	var total int64
+
+	searchQuery := "%" + query + "%"
+
+	r.db.Model(&models.Article{}).
+		Where("status = ? AND (title LIKE ? OR content LIKE ? OR excerpt LIKE ?)", "published", searchQuery, searchQuery, searchQuery).
+		Count(&total)
+
+	offset := (page - 1) * pageSize
+	err := r.db.Preload("Category").Preload("Author").Preload("Tags").
+		Where("status = ? AND (title LIKE ? OR content LIKE ? OR excerpt LIKE ?)", "published", searchQuery, searchQuery, searchQuery).
+		Offset(offset).Limit(pageSize).
+		Order("published_at DESC").
+		Find(&articles).Error
+
+	return articles, total, err
+}
+
+// ==================== User ====================
+
+func (r *Repository) GetUserByID(id string) (*models.User, error) {
+	var user models.User
+	err := r.db.Where("id = ?", id).First(&user).Error
+	return &user, err
+}
+
+// ==================== Favorite ====================
+
+func (r *Repository) GetFavorites(userID string) ([]models.Article, error) {
+	var favorites []models.Favorite
+	err := r.db.Where("user_id = ?", userID).Find(&favorites).Error
+	if err != nil {
+		return nil, err
+	}
+
+	if len(favorites) == 0 {
+		return []models.Article{}, nil
+	}
+
+	var articleIDs []string
+	for _, f := range favorites {
+		articleIDs = append(articleIDs, f.ArticleID)
+	}
+
+	var articles []models.Article
+	err = r.db.Preload("Category").Preload("Author").Preload("Tags").
+		Where("id IN ?", articleIDs).
+		Find(&articles).Error
+
+	return articles, err
+}
+
+func (r *Repository) AddFavorite(favorite *models.Favorite) error {
+	// 检查是否已收藏
+	var existing models.Favorite
+	err := r.db.Where("user_id = ? AND article_id = ?", favorite.UserID, favorite.ArticleID).First(&existing).Error
+	if err == nil {
+		return nil // 已存在，不重复添加
+	}
+	return r.db.Create(favorite).Error
+}
+
+func (r *Repository) RemoveFavorite(userID, articleID string) error {
+	return r.db.Where("user_id = ? AND article_id = ?", userID, articleID).Delete(&models.Favorite{}).Error
+}
+
+func (r *Repository) IsFavorited(userID, articleID string) bool {
+	var favorite models.Favorite
+	err := r.db.Where("user_id = ? AND article_id = ?", userID, articleID).First(&favorite).Error
+	return err == nil
+}
+
+// ==================== Article Extended ====================
+
+func (r *Repository) GetArticleByIDWithoutStatus(id string) (*models.Article, error) {
+	var article models.Article
+	err := r.db.Preload("Category").Preload("Author").Preload("Tags").
+		Where("id = ?", id).
+		First(&article).Error
+	return &article, err
+}
+
+func (r *Repository) GetArticlesByAuthor(authorID string, page, pageSize int) ([]models.Article, int64, error) {
+	var articles []models.Article
+	var total int64
+
+	r.db.Model(&models.Article{}).Where("author_id = ?", authorID).Count(&total)
+
+	offset := (page - 1) * pageSize
+	err := r.db.Preload("Category").Preload("Author").Preload("Tags").
+		Where("author_id = ?", authorID).
+		Offset(offset).Limit(pageSize).
+		Order("created_at DESC").
+		Find(&articles).Error
+
+	return articles, total, err
+}
+
+func (r *Repository) GetAllArticles(page, pageSize int, status string) ([]models.Article, int64, error) {
+	var articles []models.Article
+	var total int64
+
+	query := r.db.Model(&models.Article{})
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	query.Count(&total)
+
+	offset := (page - 1) * pageSize
+	dataQuery := r.db.Preload("Category").Preload("Author").Preload("Tags")
+	if status != "" {
+		dataQuery = dataQuery.Where("status = ?", status)
+	}
+	err := dataQuery.Offset(offset).Limit(pageSize).
+		Order("created_at DESC").
+		Find(&articles).Error
+
+	return articles, total, err
+}
+
+func (r *Repository) CreateArticleWithTags(article *models.Article, tagIDs []string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(article).Error; err != nil {
+			return err
+		}
+
+		if len(tagIDs) > 0 {
+			var tags []models.Tag
+			if err := tx.Where("id IN ?", tagIDs).Find(&tags).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(article).Association("Tags").Replace(tags); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
+func (r *Repository) UpdateArticleWithTags(id string, updates map[string]interface{}, tagIDs []string) error {
+	// 清除缓存
+	cacheKey := fmt.Sprintf("article:%s", id)
+	r.redis.Del(context.Background(), cacheKey)
+
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.Article{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+			return err
+		}
+
+		if tagIDs != nil {
+			var article models.Article
+			if err := tx.Where("id = ?", id).First(&article).Error; err != nil {
+				return err
+			}
+
+			var tags []models.Tag
+			if len(tagIDs) > 0 {
+				if err := tx.Where("id IN ?", tagIDs).Find(&tags).Error; err != nil {
+					return err
+				}
+			}
+			if err := tx.Model(&article).Association("Tags").Replace(tags); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
+// ==================== User Management ====================
+
+func (r *Repository) UpdateUser(id string, updates map[string]interface{}) error {
+	return r.db.Model(&models.User{}).Where("id = ?", id).Updates(updates).Error
+}
+
+func (r *Repository) GetAllUsers(page, pageSize int, query string) ([]models.User, int64, error) {
+	var users []models.User
+	var total int64
+
+	db := r.db.Model(&models.User{})
+
+	if query != "" {
+		searchQuery := "%" + query + "%"
+		db = db.Where("name LIKE ? OR email LIKE ?", searchQuery, searchQuery)
+	}
+
+	db.Count(&total)
+
+	offset := (page - 1) * pageSize
+	err := db.Offset(offset).Limit(pageSize).Order("created_at DESC").Find(&users).Error
+
+	return users, total, err
+}
+
+func (r *Repository) DeleteUser(id string) error {
+	return r.db.Delete(&models.User{}, "id = ?", id).Error
 }

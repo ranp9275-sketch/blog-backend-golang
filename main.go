@@ -37,6 +37,7 @@ func main() {
 		&models.Article{},
 		&models.Comment{},
 		&models.ArticleView{},
+		&models.Favorite{},
 	); err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
@@ -61,8 +62,13 @@ func main() {
 	// 公开路由
 	public := router.Group("/api")
 	{
+		// 认证相关
+		public.POST("/auth/login", h.Login)
+		public.POST("/auth/register", h.Register)
+
 		// 文章相关
 		public.GET("/articles", h.GetArticles)
+		public.GET("/articles/search", h.SearchArticles)
 		public.GET("/articles/:id", h.GetArticleByID)
 		public.GET("/articles/category/:categoryID", h.GetArticlesByCategory)
 		public.GET("/articles/tag/:tagID", h.GetArticlesByTag)
@@ -82,15 +88,42 @@ func main() {
 		public.GET("/articles/:id/stats", h.GetArticleStats)
 	}
 
-	// 受保护的路由（需要认证）
+	// 需要认证的用户路由
+	user := router.Group("/api")
+	user.Use(middleware.AuthMiddleware())
+	{
+		// 获取当前用户
+		user.GET("/auth/me", h.GetCurrentUser)
+
+		// 收藏相关
+		user.GET("/user/favorites", h.GetFavorites)
+		user.POST("/user/favorites", h.AddFavorite)
+		user.DELETE("/user/favorites/:articleID", h.RemoveFavorite)
+
+		// 用户文章管理（创建草稿）
+		user.GET("/user/articles", h.GetUserArticles)
+		user.POST("/user/articles", h.CreateUserArticle)
+		user.PUT("/user/articles/:id", h.UpdateUserArticle)
+		user.DELETE("/user/articles/:id", h.DeleteUserArticle)
+
+		// 个人信息管理
+		user.PUT("/user/profile", h.UpdateProfile)
+		user.PUT("/user/password", h.UpdatePassword)
+	}
+
+	// 受保护的路由（需要管理员认证）
 	protected := router.Group("/api/admin")
 	protected.Use(middleware.AuthMiddleware())
+	protected.Use(middleware.AdminMiddleware())
 	{
 		// 文章管理
+		protected.GET("/articles", h.GetAllArticlesAdmin)
+		protected.GET("/articles/pending", h.GetPendingArticles)
 		protected.POST("/articles", h.CreateArticle)
 		protected.PUT("/articles/:id", h.UpdateArticle)
 		protected.DELETE("/articles/:id", h.DeleteArticle)
 		protected.PATCH("/articles/:id/publish", h.PublishArticle)
+		protected.PATCH("/articles/:id/reject", h.RejectArticle)
 
 		// 分类管理
 		protected.POST("/categories", h.CreateCategory)
@@ -105,9 +138,10 @@ func main() {
 		// 评论管理
 		protected.DELETE("/comments/:id", h.DeleteComment)
 
-		// 统计数据
-		protected.GET("/stats", h.GetStats)
-		protected.GET("/stats/articles", h.GetArticleStats)
+		// 用户管理
+		protected.GET("/users", h.GetAllUsers)
+		protected.PUT("/users/:id/role", h.UpdateUserRole)
+		protected.DELETE("/users/:id", h.DeleteUser)
 	}
 
 	// 健康检查

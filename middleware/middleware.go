@@ -69,7 +69,11 @@ func AuthMiddleware() gin.HandlerFunc {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 			}
-			return []byte(os.Getenv("JWT_SECRET")), nil
+			secret := os.Getenv("JWT_SECRET")
+			if secret == "" {
+				secret = "your-secret-key"
+			}
+			return []byte(secret), nil
 		})
 
 		if err != nil || !token.Valid {
@@ -87,6 +91,26 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		c.Set("userID", claims["sub"])
 		c.Set("userRole", claims["role"])
+
+		c.Next()
+	}
+}
+
+// AdminMiddleware 管理员中间件
+func AdminMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, exists := c.Get("userRole")
+		if !exists {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+			c.Abort()
+			return
+		}
+
+		if role != "admin" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+			c.Abort()
+			return
+		}
 
 		c.Next()
 	}

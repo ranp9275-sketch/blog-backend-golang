@@ -9,9 +9,12 @@ import (
 
 // User 用户模型
 type User struct {
-	ID        string    `gorm:"primaryKey" json:"id"`
+	ID        string    `gorm:"primaryKey;size:191" json:"id"`
 	Email     string    `json:"email"`
 	Name      string    `json:"name"`
+	Password  string    `json:"-"` // 密码字段，不返回给前端
+	Avatar    string    `json:"avatar"`
+	Bio       string    `json:"bio"`
 	Role      string    `json:"role"` // admin, user
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -19,7 +22,7 @@ type User struct {
 
 // Category 分类模型
 type Category struct {
-	ID        string    `gorm:"primaryKey" json:"id"`
+	ID        string    `gorm:"primaryKey;size:191" json:"id"`
 	Name      string    `json:"name"`
 	Slug      string    `json:"slug"`
 	Desc      string    `json:"desc"`
@@ -29,7 +32,7 @@ type Category struct {
 
 // Tag 标签模型
 type Tag struct {
-	ID        string    `gorm:"primaryKey" json:"id"`
+	ID        string    `gorm:"primaryKey;size:191" json:"id"`
 	Name      string    `json:"name"`
 	Slug      string    `json:"slug"`
 	CreatedAt time.Time `json:"created_at"`
@@ -38,20 +41,20 @@ type Tag struct {
 
 // Article 文章模型
 type Article struct {
-	ID         string    `gorm:"primaryKey" json:"id"`
-	Title      string    `json:"title"`
-	Slug       string    `json:"slug"`
-	Content    string    `gorm:"type:longtext" json:"content"`
-	Excerpt    string    `json:"excerpt"`
-	CoverImage string    `json:"cover_image"`
-	CategoryID string    `json:"category_id"`
-	Category   Category  `gorm:"foreignKey:CategoryID" json:"category"`
-	Status     string    `json:"status"` // draft, published
-	Views      int64     `json:"views"`
-	AuthorID   string    `json:"author_id"`
-	Author     User      `gorm:"foreignKey:AuthorID" json:"author"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID          string     `gorm:"primaryKey;size:191" json:"id"`
+	Title       string     `json:"title"`
+	Slug        string     `json:"slug"`
+	Content     string     `gorm:"type:longtext" json:"content"`
+	Excerpt     string     `json:"excerpt"`
+	CoverImage  string     `json:"cover_image"`
+	CategoryID  string     `gorm:"size:191" json:"category_id"`
+	Category    Category   `gorm:"foreignKey:CategoryID" json:"category"`
+	Status      string     `json:"status"` // draft, published
+	Views       int64      `json:"views"`
+	AuthorID    string     `gorm:"size:191" json:"author_id"`
+	Author      User       `gorm:"foreignKey:AuthorID" json:"author"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 	PublishedAt *time.Time `json:"published_at"`
 
 	// 关联
@@ -61,8 +64,8 @@ type Article struct {
 
 // Comment 评论模型
 type Comment struct {
-	ID        string    `gorm:"primaryKey" json:"id"`
-	ArticleID string    `json:"article_id"`
+	ID        string    `gorm:"primaryKey;size:191" json:"id"`
+	ArticleID string    `gorm:"size:191" json:"article_id"`
 	Article   Article   `gorm:"foreignKey:ArticleID" json:"article"`
 	Author    string    `json:"author"`
 	Email     string    `json:"email"`
@@ -74,11 +77,20 @@ type Comment struct {
 
 // ArticleView 文章浏览记录
 type ArticleView struct {
-	ID        string    `gorm:"primaryKey" json:"id"`
-	ArticleID string    `json:"article_id"`
+	ID        string    `gorm:"primaryKey;size:191" json:"id"`
+	ArticleID string    `gorm:"size:191" json:"article_id"`
 	Article   Article   `gorm:"foreignKey:ArticleID" json:"article"`
 	IP        string    `json:"ip"`
 	UserAgent string    `json:"user_agent"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Favorite 用户收藏
+type Favorite struct {
+	ID        string    `gorm:"primaryKey;size:191" json:"id"`
+	UserID    string    `gorm:"size:191;index" json:"user_id"`
+	ArticleID string    `gorm:"size:191;index" json:"article_id"`
+	Article   Article   `gorm:"foreignKey:ArticleID" json:"article"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -121,6 +133,13 @@ func (c *Comment) BeforeCreate(tx *gorm.DB) error {
 func (av *ArticleView) BeforeCreate(tx *gorm.DB) error {
 	if av.ID == "" {
 		av.ID = uuid.New().String()
+	}
+	return nil
+}
+
+func (f *Favorite) BeforeCreate(tx *gorm.DB) error {
+	if f.ID == "" {
+		f.ID = uuid.New().String()
 	}
 	return nil
 }
