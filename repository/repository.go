@@ -154,6 +154,8 @@ func (r *Repository) UpdateCategory(id string, updates map[string]interface{}) e
 }
 
 func (r *Repository) DeleteCategory(id string) error {
+	// 先把该分类下的文章的 category_id 设为空
+	r.db.Model(&models.Article{}).Where("category_id = ?", id).Update("category_id", nil)
 	return r.db.Delete(&models.Category{}, "id = ?", id).Error
 }
 
@@ -174,6 +176,8 @@ func (r *Repository) UpdateTag(id string, updates map[string]interface{}) error 
 }
 
 func (r *Repository) DeleteTag(id string) error {
+	// 先删除 article_tags 关联表中的记录
+	r.db.Exec("DELETE FROM article_tags WHERE tag_id = ?", id)
 	return r.db.Delete(&models.Tag{}, "id = ?", id).Error
 }
 
