@@ -1,0 +1,107 @@
+version: '3.8'
+
+services:
+  # MySQL 数据库
+  mysql:
+    image: mysql:8.0
+    container_name: blog-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-blog123456}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-newblog}
+      MYSQL_USER: ${MYSQL_USER:-blog}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-blog123456}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ../db_schema.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "3306:3306"
+    networks:
+      - blog-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis 缓存
+  redis:
+    image: redis:7-alpine
+    container_name: blog-redis
+    restart: always
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - blog-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Go 后端
+  backend:
+    build:
+      context: ../
+      dockerfile: Dockerfile
+    container_name: blog-backend
+    restart: always
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: ${MYSQL_USER:-blog}
+      DB_PASSWORD: ${MYSQL_PASSWORD:-blog123456}
+      DB_NAME: ${MYSQL_DATABASE:-newblog}
+      REDIS_ADDR: redis:6379
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      PORT: 8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - blog-network
+
+  # Vue 前端
+  frontend:
+    build:
+      context: ../../blog-frontend-vue
+      dockerfile: Dockerfile
+    container_name: blog-frontend
+    restart: always
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - blog-network
+
+  # Nginx 反向代理
+  nginx:
+    image: nginx:alpine
+    container_name: blog-nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - blog-network
+
+volumes:
+  mysql_data:
+  redis_data:
+
+networks:
+  blog-network:
+    driver: bridge
