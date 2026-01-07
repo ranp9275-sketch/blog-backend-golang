@@ -313,16 +313,58 @@ func (r *Repository) GetArticleByIDWithoutStatus(id string) (*models.Article, er
 	return &article, err
 }
 
-func (r *Repository) GetArticlesByAuthor(authorID string, page, pageSize int) ([]models.Article, int64, error) {
+func (r *Repository) GetArticlesByAuthor(authorID string, page, pageSize int, query, status, categoryID, tagID string) ([]models.Article, int64, error) {
 	var articles []models.Article
 	var total int64
 
-	r.db.Model(&models.Article{}).Where("author_id = ?", authorID).Count(&total)
+	db := r.db.Model(&models.Article{}).Where("author_id = ?", authorID)
+
+	// 搜索标题
+	if query != "" {
+		searchQuery := "%" + query + "%"
+		db = db.Where("title LIKE ?", searchQuery)
+	}
+
+	// 按状态筛选
+	if status != "" {
+		db = db.Where("status = ?", status)
+	}
+
+	// 按分类筛选
+	if categoryID != "" {
+		db = db.Where("category_id = ?", categoryID)
+	}
+
+	// 按标签筛选
+	if tagID != "" {
+		db = db.Joins("JOIN article_tags ON article_tags.article_id = articles.id").
+			Where("article_tags.tag_id = ?", tagID)
+	}
+
+	db.Count(&total)
 
 	offset := (page - 1) * pageSize
-	err := r.db.Preload("Category").Preload("Author").Preload("Tags").
-		Where("author_id = ?", authorID).
-		Offset(offset).Limit(pageSize).
+
+	// 重新构建查询用于获取数据
+	dataQuery := r.db.Preload("Category").Preload("Author").Preload("Tags").
+		Where("author_id = ?", authorID)
+
+	if query != "" {
+		searchQuery := "%" + query + "%"
+		dataQuery = dataQuery.Where("title LIKE ?", searchQuery)
+	}
+	if status != "" {
+		dataQuery = dataQuery.Where("status = ?", status)
+	}
+	if categoryID != "" {
+		dataQuery = dataQuery.Where("category_id = ?", categoryID)
+	}
+	if tagID != "" {
+		dataQuery = dataQuery.Joins("JOIN article_tags ON article_tags.article_id = articles.id").
+			Where("article_tags.tag_id = ?", tagID)
+	}
+
+	err := dataQuery.Offset(offset).Limit(pageSize).
 		Order("created_at DESC").
 		Find(&articles).Error
 

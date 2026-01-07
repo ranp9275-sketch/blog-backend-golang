@@ -549,8 +549,12 @@ func (h *Handlers) GetUserArticles(c *gin.Context) {
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "10"))
+	query := c.Query("q")
+	status := c.Query("status")
+	categoryID := c.Query("category_id")
+	tagID := c.Query("tag_id")
 
-	articles, total, err := h.repo.GetArticlesByAuthor(userID.(string), page, pageSize)
+	articles, total, err := h.repo.GetArticlesByAuthor(userID.(string), page, pageSize, query, status, categoryID, tagID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
