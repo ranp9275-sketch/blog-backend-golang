@@ -96,7 +96,27 @@ func (r *Repository) DeleteArticle(id string) error {
 	cacheKey := fmt.Sprintf("article:%s", id)
 	r.redis.Del(context.Background(), cacheKey)
 
-	return r.db.Delete(&models.Article{}, "id = ?", id).Error
+	// 使用事务删除文章及其关联数据
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		// 删除文章浏览记录
+		if err := tx.Where("article_id = ?", id).Delete(&models.ArticleView{}).Error; err != nil {
+			return err
+		}
+		// 删除文章评论
+		if err := tx.Where("article_id = ?", id).Delete(&models.Comment{}).Error; err != nil {
+			return err
+		}
+		// 删除文章收藏
+		if err := tx.Where("article_id = ?", id).Delete(&models.Favorite{}).Error; err != nil {
+			return err
+		}
+		// 删除文章标签关联
+		if err := tx.Exec("DELETE FROM article_tags WHERE article_id = ?", id).Error; err != nil {
+			return err
+		}
+		// 删除文章
+		return tx.Delete(&models.Article{}, "id = ?", id).Error
+	})
 }
 
 func (r *Repository) GetArticlesByCategory(categoryID string, page, pageSize int) ([]models.Article, int64, error) {
@@ -471,4 +491,30 @@ func (r *Repository) GetAllUsers(page, pageSize int, query string) ([]models.Use
 
 func (r *Repository) DeleteUser(id string) error {
 	return r.db.Delete(&models.User{}, "id = ?", id).Error
+}
+
+// ==================== Donation QRCode ====================
+
+func (r *Repository) GetDonationQRCodes() ([]models.DonationQRCode, error) {
+	var qrcodes []models.DonationQRCode
+	err := r.db.Where("enabled = ?", true).Order("sort_order ASC").Find(&qrcodes).Error
+	return qrcodes, err
+}
+
+func (r *Repository) GetAllDonationQRCodes() ([]models.DonationQRCode, error) {
+	var qrcodes []models.DonationQRCode
+	err := r.db.Order("sort_order ASC").Find(&qrcodes).Error
+	return qrcodes, err
+}
+
+func (r *Repository) CreateDonationQRCode(qrcode *models.DonationQRCode) error {
+	return r.db.Create(qrcode).Error
+}
+
+func (r *Repository) UpdateDonationQRCode(id string, updates map[string]interface{}) error {
+	return r.db.Model(&models.DonationQRCode{}).Where("id = ?", id).Updates(updates).Error
+}
+
+func (r *Repository) DeleteDonationQRCode(id string) error {
+	return r.db.Delete(&models.DonationQRCode{}, "id = ?", id).Error
 }

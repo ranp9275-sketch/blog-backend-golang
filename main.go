@@ -38,6 +38,7 @@ func main() {
 		&models.Comment{},
 		&models.ArticleView{},
 		&models.Favorite{},
+		&models.DonationQRCode{},
 	); err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
@@ -58,6 +59,9 @@ func main() {
 
 	// 初始化处理器
 	h := handlers.NewHandlers(repo)
+
+	// 静态文件服务 - 上传的图片
+	router.Static("/uploads", "./uploads")
 
 	// 公开路由
 	public := router.Group("/api")
@@ -86,6 +90,9 @@ func main() {
 		// 浏览量统计
 		public.POST("/articles/:id/view", h.RecordView)
 		public.GET("/articles/:id/stats", h.GetArticleStats)
+
+		// 打赏二维码（公开）
+		public.GET("/donation/qrcodes", h.GetDonationQRCodes)
 	}
 
 	// 需要认证的用户路由
@@ -109,6 +116,9 @@ func main() {
 		// 个人信息管理
 		user.PUT("/user/profile", h.UpdateProfile)
 		user.PUT("/user/password", h.UpdatePassword)
+
+		// 文件上传
+		user.POST("/upload", h.UploadFile)
 	}
 
 	// 受保护的路由（需要管理员认证）
@@ -142,6 +152,12 @@ func main() {
 		protected.GET("/users", h.GetAllUsers)
 		protected.PUT("/users/:id/role", h.UpdateUserRole)
 		protected.DELETE("/users/:id", h.DeleteUser)
+
+		// 打赏二维码管理
+		protected.GET("/donation/qrcodes", h.GetAllDonationQRCodes)
+		protected.POST("/donation/qrcodes", h.CreateDonationQRCode)
+		protected.PUT("/donation/qrcodes/:id", h.UpdateDonationQRCode)
+		protected.DELETE("/donation/qrcodes/:id", h.DeleteDonationQRCode)
 	}
 
 	// 健康检查

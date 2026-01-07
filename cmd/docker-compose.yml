@@ -57,6 +57,8 @@ services:
       REDIS_ADDR: redis:6379
       JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
       PORT: 8080
+    volumes:
+      - uploads_data:/app/uploads
     ports:
       - "8080:8080"
     depends_on:
@@ -101,6 +103,7 @@ services:
 volumes:
   mysql_data:
   redis_data:
+  uploads_data:
 
 networks:
   blog-network:

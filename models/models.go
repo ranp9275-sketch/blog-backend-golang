@@ -94,6 +94,18 @@ type Favorite struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// DonationQRCode 打赏二维码
+type DonationQRCode struct {
+	ID        string    `gorm:"primaryKey;size:191" json:"id"`
+	Name      string    `json:"name"`                                          // 支付方式名称：微信、支付宝等
+	Icon      string    `json:"icon"`                                          // 图标类型：wechat, alipay, qq
+	QRCodeURL string    `gorm:"column:qrcode_url" json:"qrcode_url"`           // 二维码图片URL
+	SortOrder int       `gorm:"column:sort_order;default:0" json:"sort_order"` // 排序
+	Enabled   bool      `gorm:"default:true" json:"enabled"`                   // 是否启用
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // BeforeCreate 钩子：自动生成 UUID
 func (u *User) BeforeCreate(tx *gorm.DB) error {
 	if u.ID == "" {
@@ -140,6 +152,13 @@ func (av *ArticleView) BeforeCreate(tx *gorm.DB) error {
 func (f *Favorite) BeforeCreate(tx *gorm.DB) error {
 	if f.ID == "" {
 		f.ID = uuid.New().String()
+	}
+	return nil
+}
+
+func (d *DonationQRCode) BeforeCreate(tx *gorm.DB) error {
+	if d.ID == "" {
+		d.ID = uuid.New().String()
 	}
 	return nil
 }

@@ -1,8 +1,12 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -889,4 +893,133 @@ func (h *Handlers) DeleteUser(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "User deleted"})
+}
+
+// ==================== Donation QRCode Handlers ====================
+
+// GetDonationQRCodes 获取启用的打赏二维码（公开）
+func (h *Handlers) GetDonationQRCodes(c *gin.Context) {
+	qrcodes, err := h.repo.GetDonationQRCodes()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, qrcodes)
+}
+
+// GetAllDonationQRCodes 获取所有打赏二维码（管理员）
+func (h *Handlers) GetAllDonationQRCodes(c *gin.Context) {
+	qrcodes, err := h.repo.GetAllDonationQRCodes()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, qrcodes)
+}
+
+// CreateDonationQRCode 创建打赏二维码
+func (h *Handlers) CreateDonationQRCode(c *gin.Context) {
+	var qrcode models.DonationQRCode
+	if err := c.ShouldBindJSON(&qrcode); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	qrcode.ID = uuid.New().String()
+	qrcode.CreatedAt = time.Now()
+	qrcode.UpdatedAt = time.Now()
+
+	if err := h.repo.CreateDonationQRCode(&qrcode); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, qrcode)
+}
+
+// UpdateDonationQRCode 更新打赏二维码
+func (h *Handlers) UpdateDonationQRCode(c *gin.Context) {
+	id := c.Param("id")
+	var updates map[string]interface{}
+
+	if err := c.ShouldBindJSON(&updates); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	updates["updated_at"] = time.Now()
+
+	if err := h.repo.UpdateDonationQRCode(id, updates); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "QRCode updated"})
+}
+
+// DeleteDonationQRCode 删除打赏二维码
+func (h *Handlers) DeleteDonationQRCode(c *gin.Context) {
+	id := c.Param("id")
+
+	if err := h.repo.DeleteDonationQRCode(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "QRCode deleted"})
+}
+
+// ==================== File Upload Handlers ====================
+
+// UploadFile 上传文件
+func (h *Handlers) UploadFile(c *gin.Context) {
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
+		return
+	}
+
+	// 检查文件大小 (最大 5MB)
+	if file.Size > 5*1024*1024 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "File too large (max 5MB)"})
+		return
+	}
+
+	// 检查文件类型
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	allowedExts := map[string]bool{
+		".jpg":  true,
+		".jpeg": true,
+		".png":  true,
+		".gif":  true,
+		".webp": true,
+	}
+	if !allowedExts[ext] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file type. Allowed: jpg, jpeg, png, gif, webp"})
+		return
+	}
+
+	// 创建上传目录
+	uploadDir := "./uploads"
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create upload directory"})
+		return
+	}
+
+	// 生成唯一文件名
+	filename := fmt.Sprintf("%s_%s%s", time.Now().Format("20060102150405"), uuid.New().String()[:8], ext)
+	filepath := filepath.Join(uploadDir, filename)
+
+	// 保存文件
+	if err := c.SaveUploadedFile(file, filepath); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"})
+		return
+	}
+
+	// 返回文件URL
+	url := fmt.Sprintf("/uploads/%s", filename)
+	c.JSON(http.StatusOK, gin.H{
+		"url":      url,
+		"filename": filename,
+	})
 }
