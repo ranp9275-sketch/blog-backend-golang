@@ -10,7 +10,7 @@ RUN apk add --no-cache git
 COPY go.mod go.sum ./
 
 # 下载依赖
-RUN go mod download
+RUN  export GO111MODULE=on ;export GOPROXY=https://goproxy.cn ; go mod download
 
 # 复制源代码
 COPY . .
