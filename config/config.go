@@ -29,7 +29,7 @@ func LoadConfig() *Config {
 		DBName:     getEnv("DB_NAME", "newblog"),
 		RedisAddr:  getEnv("REDIS_ADDR", "localhost:6379"),
 		JWTSecret:  getEnv("JWT_SECRET", ""),
-		Port:       getEnv("PORT", "8080"),
+		Port:       getEnv("PORT", "8081"),
 	}
 }
 

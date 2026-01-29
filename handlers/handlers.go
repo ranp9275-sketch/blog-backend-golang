@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -101,6 +102,21 @@ func (h *Handlers) CreateArticle(c *gin.Context) {
 		return
 	}
 
+	// 处理可能为空的指针字段
+	if article.CategoryID != nil && *article.CategoryID == "" {
+		article.CategoryID = nil
+	}
+	if article.AuthorID != nil && *article.AuthorID == "" {
+		article.AuthorID = nil
+	}
+
+	// 设置作者 ID
+	userID, exists := c.Get("userID")
+	if exists {
+		authorID := userID.(string)
+		article.AuthorID = &authorID
+	}
+
 	article.ID = uuid.New().String()
 	article.CreatedAt = time.Now()
 	article.UpdatedAt = time.Now()
@@ -120,6 +136,18 @@ func (h *Handlers) UpdateArticle(c *gin.Context) {
 	if err := c.ShouldBindJSON(&updates); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	// 处理空字符串转为 NULL
+	if val, ok := updates["category_id"]; ok {
+		if s, ok := val.(string); ok && s == "" {
+			updates["category_id"] = nil
+		}
+	}
+	if val, ok := updates["author_id"]; ok {
+		if s, ok := val.(string); ok && s == "" {
+			updates["author_id"] = nil
+		}
 	}
 
 	updates["updated_at"] = time.Now()
@@ -499,13 +527,13 @@ func (h *Handlers) CreateUserArticle(c *gin.Context) {
 	}
 
 	var req struct {
-		Title      string   `json:"title" binding:"required"`
-		Content    string   `json:"content" binding:"required"`
-		Excerpt    string   `json:"excerpt"`
-		CoverImage string   `json:"cover_image"`
-		CategoryID string   `json:"category_id"`
-		TagIDs     []string `json:"tag_ids"`
-		Submit     bool     `json:"submit"` // true=发布, false=保存草稿
+		Title      string      `json:"title" binding:"required"`
+		Content    string      `json:"content" binding:"required"`
+		Excerpt    string      `json:"excerpt"`
+		CoverImage string      `json:"cover_image"`
+		CategoryID string      `json:"category_id"`
+		TagIDs     []string    `json:"tag_ids"`
+		Submit     interface{} `json:"submit"` // 兼容 bool 或其他类型
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -515,10 +543,17 @@ func (h *Handlers) CreateUserArticle(c *gin.Context) {
 
 	status := "draft"
 	var publishedAt *time.Time
-	if req.Submit {
+	if submit, ok := req.Submit.(bool); ok && submit {
 		status = "published"
 		now := time.Now()
 		publishedAt = &now
+	}
+
+	authorID := userID.(string)
+	categoryID := req.CategoryID
+	var categoryIDPtr *string
+	if categoryID != "" {
+		categoryIDPtr = &categoryID
 	}
 
 	article := &models.Article{
@@ -527,8 +562,8 @@ func (h *Handlers) CreateUserArticle(c *gin.Context) {
 		Content:     req.Content,
 		Excerpt:     req.Excerpt,
 		CoverImage:  req.CoverImage,
-		CategoryID:  req.CategoryID,
-		AuthorID:    userID.(string),
+		CategoryID:  categoryIDPtr,
+		AuthorID:    &authorID,
 		Status:      status,
 		PublishedAt: publishedAt,
 		CreatedAt:   time.Now(),
@@ -589,7 +624,7 @@ func (h *Handlers) UpdateUserArticle(c *gin.Context) {
 		return
 	}
 
-	if article.AuthorID != userID.(string) {
+	if article.AuthorID == nil || *article.AuthorID != userID.(string) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "You can only edit your own articles"})
 		return
 	}
@@ -661,7 +696,7 @@ func (h *Handlers) DeleteUserArticle(c *gin.Context) {
 		return
 	}
 
-	if article.AuthorID != userID.(string) {
+	if article.AuthorID == nil || *article.AuthorID != userID.(string) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "You can only delete your own articles"})
 		return
 	}
@@ -1022,4 +1057,106 @@ func (h *Handlers) UploadFile(c *gin.Context) {
 		"url":      url,
 		"filename": filename,
 	})
+}
+
+// UploadArticle 上传文章 (PDF/MD)
+func (h *Handlers) UploadArticle(c *gin.Context) {
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
+		return
+	}
+
+	// 检查文件大小 (最大 10MB)
+	if file.Size > 10*1024*1024 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "File too large (max 10MB)"})
+		return
+	}
+
+	// 检查文件类型
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	if ext != ".pdf" && ext != ".md" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file type. Only PDF and Markdown (.md) are allowed"})
+		return
+	}
+
+	// 获取作者ID
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	// 生成文章标题 (去除后缀)
+	title := strings.TrimSuffix(file.Filename, ext)
+	content := ""
+
+	if ext == ".md" {
+		// 读取 MD 内容
+		f, err := file.Open()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open file"})
+			return
+		}
+		defer f.Close()
+
+		buf := new(strings.Builder)
+		if _, err := io.Copy(buf, f); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read file content"})
+			return
+		}
+		content = buf.String()
+	} else if ext == ".pdf" {
+		// 保存 PDF 文件
+		uploadDir := "./uploads/articles"
+		if err := os.MkdirAll(uploadDir, 0755); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create upload directory"})
+			return
+		}
+
+		filename := fmt.Sprintf("%s_%s%s", time.Now().Format("20060102150405"), uuid.New().String()[:8], ext)
+		dst := filepath.Join(uploadDir, filename)
+
+		if err := c.SaveUploadedFile(file, dst); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save PDF file"})
+			return
+		}
+
+		// 生成 PDF 查看链接
+		pdfURL := fmt.Sprintf("/uploads/articles/%s", filename)
+
+		// 尝试提取 PDF 文本内容
+		extractedText, err := extractPDFText(dst)
+		if err == nil && len(extractedText) > 0 {
+			// 成功提取文本，创建包含文本内容的文章
+			content = fmt.Sprintf("<!-- PDF_URL: %s -->\n\n## 📄 查看完整PDF\n\n本文档已上传为PDF格式，您可以：\n- 快速浏览下方提取的文本内容\n- [点击此处在线预览PDF](%s)（保留完整格式和图片）\n- [下载PDF文件](%s)\n\n---\n\n## 文档内容\n\n%s\n\n---\n\n**📎 附件**: [下载原始PDF文件](%s)", pdfURL, pdfURL, pdfURL, extractedText, pdfURL)
+		} else {
+			// 提取失败，使用下载链接
+			content = fmt.Sprintf("<!-- PDF_URL: %s -->\n\n### 文章已作为 PDF 上传\n\n[点击此处在线预览PDF](%s)\n\n[下载PDF文件](%s)\n\n*注：PDF文本提取失败，请使用上方链接查看完整内容*", pdfURL, pdfURL, pdfURL)
+		}
+	}
+
+	// 创建文章对象
+	now := time.Now()
+	authorID := userID.(string)
+
+	article := &models.Article{
+		ID:          uuid.New().String(),
+		Title:       title,
+		Content:     content,
+		Status:      "published",
+		AuthorID:    &authorID,
+		CategoryID:  nil, // 不设置默认分类，允许为空
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		PublishedAt: &now,
+	}
+
+	// 保存到数据库
+	if err := h.repo.CreateArticle(article); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, article)
 }

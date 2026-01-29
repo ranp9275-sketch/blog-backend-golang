@@ -110,6 +110,7 @@ func main() {
 		// 用户文章管理（创建草稿）
 		user.GET("/user/articles", h.GetUserArticles)
 		user.POST("/user/articles", h.CreateUserArticle)
+		user.POST("/user/articles/upload", h.UploadArticle)
 		user.PUT("/user/articles/:id", h.UpdateUserArticle)
 		user.DELETE("/user/articles/:id", h.DeleteUserArticle)
 
@@ -134,6 +135,7 @@ func main() {
 		protected.DELETE("/articles/:id", h.DeleteArticle)
 		protected.PATCH("/articles/:id/publish", h.PublishArticle)
 		protected.PATCH("/articles/:id/reject", h.RejectArticle)
+		protected.POST("/articles/upload", h.UploadArticle)
 
 		// 分类管理
 		protected.POST("/categories", h.CreateCategory)
@@ -166,7 +168,13 @@ func main() {
 	})
 
 	// 启动服务器
+	err = os.Setenv("PORT", "8080")
+	if err != nil {
+		log.Fatalf("Failed to set PORT environment variable: %v", err)
+	}
+
 	port := os.Getenv("PORT")
+
 	if port == "" {
 		port = "8080"
 	}

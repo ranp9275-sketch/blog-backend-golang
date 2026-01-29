@@ -47,11 +47,11 @@ type Article struct {
 	Content     string     `gorm:"type:longtext" json:"content"`
 	Excerpt     string     `json:"excerpt"`
 	CoverImage  string     `json:"cover_image"`
-	CategoryID  string     `gorm:"size:191" json:"category_id"`
+	CategoryID  *string    `gorm:"size:191" json:"category_id"`
 	Category    Category   `gorm:"foreignKey:CategoryID" json:"category"`
 	Status      string     `json:"status"` // draft, published
 	Views       int64      `json:"views"`
-	AuthorID    string     `gorm:"size:191" json:"author_id"`
+	AuthorID    *string    `gorm:"size:191" json:"author_id"`
 	Author      User       `gorm:"foreignKey:AuthorID" json:"author"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
