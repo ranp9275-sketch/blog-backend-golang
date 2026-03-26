@@ -3,6 +3,9 @@ FROM docker.1ms.run/golang:1.21-alpine AS builder
 
 WORKDIR /app
 
+# 替换 Alpine 官方软件源为阿里云源，加速国内服务器的构建速度
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+
 # 安装依赖
 RUN apk add --no-cache git
 
@@ -20,6 +23,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o blog-backend .
 
 # Final stage
 FROM docker.1ms.run/alpine:latest
+
+# 替换 Alpine官方软件源为阿里云源，加速国内服务器的构建速度
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
 RUN apk --no-cache add ca-certificates
 
