@@ -111,6 +111,7 @@ func main() {
 		user.GET("/user/articles", h.GetUserArticles)
 		user.POST("/user/articles", h.CreateUserArticle)
 		user.POST("/user/articles/upload", h.UploadArticle)
+		// 爬取文章
 		user.POST("/user/articles/fetch", h.FetchArticleByURL)
 		user.PUT("/user/articles/:id", h.UpdateUserArticle)
 		user.DELETE("/user/articles/:id", h.DeleteUserArticle)
