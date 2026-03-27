@@ -193,7 +193,17 @@ func (h *Handlers) FetchArticleByURL(c *gin.Context) {
 		if strings.HasPrefix(coverImage, "//") {
 			coverImage = "https:" + coverImage
 		} else if strings.HasPrefix(coverImage, "/") {
-			coverImage = fmt.Sprintf("%s://%s%s", parsedUrl.Scheme, parsedUrl.Host, coverImage)
+			// 如果已经是本地路径，则跳过补全
+			if !strings.HasPrefix(coverImage, "/uploads/") {
+				coverImage = fmt.Sprintf("%s://%s%s", parsedUrl.Scheme, parsedUrl.Host, coverImage)
+			}
+		}
+
+		// 终极防线：哪怕解析出来的封面链接（article.Image 或 补全后的）是外部HTTP链接，依然要给它单独强行下载下来保存！
+		if strings.HasPrefix(coverImage, "http") {
+			if localCover, err := downloadImage(client, coverImage, req.URL); err == nil {
+				coverImage = localCover
+			}
 		}
 	}
 
