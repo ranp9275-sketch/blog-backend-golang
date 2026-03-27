@@ -2,15 +2,20 @@ package handlers
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/gin-gonic/gin"
 	"github.com/go-shiori/go-readability"
+	"github.com/google/uuid"
 )
 
 // FetchArticleRequest 请求参数
@@ -75,6 +80,13 @@ func (h *Handlers) FetchArticleByURL(c *gin.Context) {
 	}
 
 	var fallbackCover string
+	
+	type imgProcess struct {
+		selection *goquery.Selection
+		src       string
+	}
+	var imgsToDownload []imgProcess
+
 	lazyAttrs := []string{"data-src", "data-original", "data-lazy-src", "data-actualsrc", "origin-src", "data-src-retina", "v-lazy", "src-large"}
 	doc.Find("img").Each(func(i int, s *goquery.Selection) {
 		for _, attr := range lazyAttrs {
@@ -93,14 +105,32 @@ func (h *Handlers) FetchArticleByURL(c *gin.Context) {
 				s.SetAttr("src", src)
 			}
 
-			// 获取第一张常规图片作为封面备选
-			if fallbackCover == "" && strings.HasPrefix(src, "http") {
-				if !strings.Contains(strings.ToLower(src), "icon") && !strings.Contains(strings.ToLower(src), "avatar") && !strings.Contains(strings.ToLower(src), "logo") {
-					fallbackCover = src
-				}
+			if strings.HasPrefix(src, "http") {
+				imgsToDownload = append(imgsToDownload, imgProcess{selection: s, src: src})
 			}
 		}
 	})
+
+	// 并发下载图片替换资源防盗链
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	for _, item := range imgsToDownload {
+		wg.Add(1)
+		go func(img imgProcess) {
+			defer wg.Done()
+			localPath, err := downloadImage(client, img.src, req.URL)
+			if err == nil {
+				mu.Lock()
+				img.selection.SetAttr("src", localPath)
+				// 获取第一张常规成功下载图片作为封面备选
+				if fallbackCover == "" && !strings.Contains(strings.ToLower(img.src), "icon") && !strings.Contains(strings.ToLower(img.src), "avatar") && !strings.Contains(strings.ToLower(img.src), "logo") {
+					fallbackCover = localPath
+				}
+				mu.Unlock()
+			}
+		}(item)
+	}
+	wg.Wait()
 
 	htmlStr, err := doc.Html()
 	if err != nil {
@@ -174,4 +204,56 @@ func (h *Handlers) FetchArticleByURL(c *gin.Context) {
 		CoverImage: coverImage,
 		CategoryID: matchedCategoryID,
 	})
+}
+
+// downloadImage 抓取远程图片到本地 uploads 目录，并返回相对路径URL
+func downloadImage(client *http.Client, urlStr string, referer string) (string, error) {
+	req, err := http.NewRequest("GET", urlStr, nil)
+	if err != nil {
+		return "", err
+	}
+	// 模拟正常浏览器请求和原始 Referer 绕过防盗链
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Referer", referer)
+	req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("bad status: %d", resp.StatusCode)
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	ext := ".jpg"
+	if strings.Contains(contentType, "png") {
+		ext = ".png"
+	} else if strings.Contains(contentType, "gif") {
+		ext = ".gif"
+	} else if strings.Contains(contentType, "webp") {
+		ext = ".webp"
+	} else if strings.Contains(contentType, "svg") {
+		ext = ".svg"
+	}
+
+	uploadDir := "./uploads"
+	os.MkdirAll(uploadDir, 0755)
+
+	filename := fmt.Sprintf("fetch_%s_%s%s", time.Now().Format("20060102150405"), uuid.New().String()[:8], ext)
+	dst := filepath.Join(uploadDir, filename)
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return "", err
+	}
+	defer out.Close()
+
+	if _, err = io.Copy(out, resp.Body); err != nil {
+		return "", err
+	}
+
+	return "/uploads/" + filename, nil
 }
